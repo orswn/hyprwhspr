@@ -6,12 +6,17 @@ Provides streaming speech-to-text using Google's Gemini Live API.
 import json
 import base64
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 try:
     from .realtime_base import WebSocketRealtimeClientBase
 except ImportError:
     from realtime_base import WebSocketRealtimeClientBase
+
+try:
+    from .text_script import join_segments
+except ImportError:
+    from text_script import join_segments
 
 import numpy as np
 
@@ -37,6 +42,11 @@ class GeminiRealtimeClient(WebSocketRealtimeClientBase):
         super().__init__(mode=mode)
         self.sample_rate = 16000  # Gemini output stream rate
         self._setup_complete = threading.Event()
+        self._partial_transcript_callback = None
+
+    def _is_transcribe_model(self) -> bool:
+        """Check if model is a dedicated text-only transcription model."""
+        return 'transcribe' in (self.model or '').lower()
 
     # ------------------------------------------------------------------
     # Transport hooks
@@ -49,42 +59,56 @@ class GeminiRealtimeClient(WebSocketRealtimeClientBase):
 
     def _prepare_connect(self):
         self._setup_complete.clear()
+        with self.lock:
+            self._partial_transcript = ""
 
     def _after_open(self, ws):
         """Send the setup/config message; 'connected' is set on setupComplete."""
         self._log('WebSocket opened, sending config...')
 
-        # Build setup message per BidiGenerateContentSetup proto
-        # Native audio models REQUIRE responseModalities: ["AUDIO"].
-        # Text transcription comes via inputAudioTranscription / outputAudioTranscription.
-        setup_config = {
-            'model': f'models/{self.model}',
-            'generationConfig': {
-                'responseModalities': ['AUDIO'],
-                'speechConfig': {
-                    'voiceConfig': {
-                        'prebuiltVoiceConfig': {
-                            'voiceName': 'Puck'
-                        }
-                    }
-                },
-            },
-            'inputAudioTranscription': {},
-            'outputAudioTranscription': {},
-        }
-
-        # Add system instruction
-        if self.instructions:
-            setup_config['systemInstruction'] = {
-                'parts': [{'text': self.instructions}]
-            }
-        elif self.mode == 'transcribe':
-            instruction = 'You are a transcription assistant. Acknowledge audio input briefly.'
+        if self._is_transcribe_model():
+            audio_transcription = {}
             if self.language:
-                instruction += f' The user speaks {self.language}.'
-            setup_config['systemInstruction'] = {
-                'parts': [{'text': instruction}]
+                audio_transcription['languageCodes'] = [self.language]
+            setup_config = {
+                'model': f'models/{self.model}',
+                'generationConfig': {
+                    'responseModalities': ['TEXT'],
+                },
+                'inputAudioTranscription': audio_transcription,
             }
+        else:
+            # Build setup message per BidiGenerateContentSetup proto
+            # Native audio models REQUIRE responseModalities: ["AUDIO"].
+            # Text transcription comes via inputAudioTranscription / outputAudioTranscription.
+            setup_config = {
+                'model': f'models/{self.model}',
+                'generationConfig': {
+                    'responseModalities': ['AUDIO'],
+                    'speechConfig': {
+                        'voiceConfig': {
+                            'prebuiltVoiceConfig': {
+                                'voiceName': 'Puck'
+                            }
+                        }
+                    },
+                },
+                'inputAudioTranscription': {},
+                'outputAudioTranscription': {},
+            }
+
+            # Add system instruction
+            if self.instructions:
+                setup_config['systemInstruction'] = {
+                    'parts': [{'text': self.instructions}]
+                }
+            elif self.mode == 'transcribe':
+                instruction = 'You are a transcription assistant. Acknowledge audio input briefly.'
+                if self.language:
+                    instruction += f' The user speaks {self.language}.'
+                setup_config['systemInstruction'] = {
+                    'parts': [{'text': instruction}]
+                }
 
         # Send setup message
         setup_message = {'setup': setup_config}
@@ -94,6 +118,35 @@ class GeminiRealtimeClient(WebSocketRealtimeClientBase):
             self._log('Config sent')
         except Exception as e:
             self._log(f'Failed to send config: {e}')
+
+    def set_partial_transcript_callback(
+        self,
+        callback: Optional[Callable[[str], None]],
+    ) -> None:
+        """Set the live-preview callback retained across reconnects."""
+        with self.lock:
+            self._partial_transcript_callback = callback
+        if callback is not None:
+            self._emit_partial_transcript()
+
+    def _committed_text_locked(self) -> str:
+        """Joined committed transcript. Call with self.lock held."""
+        return join_segments(self._committed_segments)
+
+    def _emit_partial_transcript(self) -> None:
+        with self.lock:
+            callback = self._partial_transcript_callback
+            committed = self._committed_text_locked()
+            partial = self._partial_transcript.strip()
+            preview = join_segments([committed, partial]) if partial else committed
+
+        if callback is None:
+            return
+
+        try:
+            callback(preview)
+        except Exception as exc:
+            self._log(f'Failed to deliver partial transcript: {exc}')
 
     def _audio_ws_message(self, base64_audio: str) -> dict:
         # Gemini Live API audio format
@@ -155,17 +208,28 @@ class GeminiRealtimeClient(WebSocketRealtimeClientBase):
     def _handle_server_content(self, content: dict):
         """Handle serverContent events"""
 
-        # Input transcription (user's speech-to-text)
+        # Interim transcription (user's speech-to-text in progress)
+        interim = content.get('interimInputTranscription')
+        if interim:
+            text = interim.get('text', '')
+            if text:
+                with self.lock:
+                    self._partial_transcript = text
+                self._emit_partial_transcript()
+
+        # Input transcription (user's speech-to-text finalized)
         input_transcription = content.get('inputTranscription')
         if input_transcription:
             text = input_transcription.get('text', '')
             if text and text.strip():
                 with self.lock:
                     self._committed_segments.append(text.strip())
+                    self._partial_transcript = ""
                     self._transcript_generation += 1
                     self._last_transcript_audio_activity_id = self._audio_activity_id
                     self.current_response_text = text.strip()
                     self.response_complete = True
+                self._emit_partial_transcript()
                 self.response_event.set()
                 self._log(f'Input transcription ({len(text)} chars)')
 

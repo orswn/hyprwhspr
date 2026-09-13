@@ -148,6 +148,12 @@ PROVIDERS: Dict[str, Dict] = {
         'api_key_prefix': None,
         'api_key_description': 'Google AI API key (from aistudio.google.com)',
         'models': {
+            'gemini-3.5-transcribe-live': {
+                'name': 'Gemini 3.5 Transcribe Live',
+                'description': 'Precise real-time streaming speech-to-text, 85+ languages',
+                'backends': ('realtime-ws',),
+                'realtime': {'default_mode': 'transcribe'},
+            },
             'gemini-3.1-flash-live-preview': {
                 'name': 'Gemini 3.1 Flash Live (Preview)',
                 'description': 'Fast, low-latency realtime streaming',

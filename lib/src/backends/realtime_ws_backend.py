@@ -113,6 +113,12 @@ class RealtimeWsBackend(TranscriptionBackend):
                 from gemini_realtime_client import GeminiRealtimeClient
 
             realtime_mode = self.config.get_setting('realtime_mode', 'transcribe')
+            if 'transcribe' in model_id and realtime_mode != 'transcribe':
+                print(
+                    f'ERROR: {model_id} is supported only with realtime_mode="transcribe"',
+                    flush=True,
+                )
+                return False
             self._realtime_client = GeminiRealtimeClient(mode=realtime_mode)
 
             # Get WebSocket URL
@@ -158,6 +164,14 @@ class RealtimeWsBackend(TranscriptionBackend):
                     pass
                 self._realtime_client = None
                 return False
+
+            if self._is_partial_preview_enabled(provider_id, model_id, realtime_mode):
+                if hasattr(self._realtime_client, 'set_partial_transcript_callback'):
+                    self._realtime_client.set_partial_transcript_callback(self._realtime_partial_callback)
+            else:
+                if hasattr(self._realtime_client, 'set_partial_transcript_callback'):
+                    self._realtime_client.set_partial_transcript_callback(None)
+                self._clear_realtime_partial_preview()
 
             def _send_direct(audio_chunk: np.ndarray):
                 """Send audio directly to Gemini; client resamples if needed."""

@@ -749,7 +749,7 @@ Uses native 16kHz audio (no resampling) and server-side VAD.
 {
     "transcription_backend": "realtime-ws",
     "websocket_provider": "google",
-    "websocket_model": "gemini-3.1-flash-live-preview",  // or gemini-2.5-flash-native-audio-preview-12-2025
+    "websocket_model": "gemini-3.5-transcribe-live",     // or gemini-3.1-flash-live-preview, gemini-2.5-flash-native-audio-preview-12-2025
     "realtime_mode": "transcribe",           // "transcribe" or "converse"
     "realtime_timeout": 30,                  // Advanced: seconds to wait after stop for final transcript
     "realtime_buffer_max_seconds": 5         // Advanced: max unsent audio backlog (seconds) before dropping old chunks

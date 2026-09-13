@@ -365,7 +365,7 @@
     "websocket_model": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Model identifier for WebSocket backend (e.g., 'gpt-transcribe', 'gemini-3.1-flash-live-preview')"
+      "description": "Model identifier for WebSocket backend (e.g., 'gpt-transcribe', 'gemini-3.5-transcribe-live')"
     },
     "websocket_url": {
       "type": ["string", "null"],
