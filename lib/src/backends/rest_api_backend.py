@@ -6,6 +6,7 @@ OpenAI-compatible transcription API) and returns the transcript.
 Stateless: configuration is re-read on every request.
 """
 
+import base64
 import time
 from typing import Optional
 
@@ -178,6 +179,17 @@ class RestApiBackend(TranscriptionBackend):
                 flush=True,
             )
 
+            is_google = (
+                provider_id == 'google'
+                or 'generativelanguage.googleapis.com' in endpoint_url
+            )
+            if is_google:
+                language = language_override if language_override is not None else self.config.get_setting('language', None)
+                return self._transcribe_google(
+                    audio_data, sample_rate, endpoint_url, api_key,
+                    timeout, extra_headers, extra_body, language
+                )
+
             # Prepare the request
             files = {'file': ('audio.wav', wav_bytes, 'audio/wav')}
 
@@ -266,3 +278,104 @@ class RestApiBackend(TranscriptionBackend):
         except Exception as e:
             print(f'ERROR: REST transcription failed: {e}')
             return ''
+
+    def _transcribe_google(
+        self,
+        audio_data: np.ndarray,
+        sample_rate: int,
+        endpoint_url: str,
+        api_key: Optional[str],
+        timeout: int,
+        extra_headers: dict,
+        extra_body: dict,
+        language: Optional[str],
+    ) -> str:
+        """Transcribe audio using Google Gemini generateContent API."""
+        wav_bytes = self._numpy_to_wav_bytes(audio_data, sample_rate)
+        b64_audio = base64.b64encode(wav_bytes).decode('utf-8')
+        audio_duration = len(audio_data) / sample_rate
+        print(
+            f'[REST] Audio: {audio_duration:.2f}s @ {sample_rate}Hz, {len(wav_bytes)} bytes',
+            flush=True,
+        )
+
+        audio_config = {'mode': 'SMART'}
+        if language:
+            audio_config['languageCodes'] = [language]
+
+        payload = {
+            'contents': [
+                {
+                    'parts': [
+                        {
+                            'inlineData': {
+                                'mimeType': 'audio/wav',
+                                'data': b64_audio,
+                            }
+                        }
+                    ]
+                }
+            ],
+            'generationConfig': {
+                'audioTranscriptionConfig': audio_config,
+            },
+        }
+
+        if extra_body:
+            for k, v in extra_body.items():
+                if k != 'model':
+                    payload[k] = v
+
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        headers.update(extra_headers)
+        if api_key:
+            headers['x-goog-api-key'] = api_key
+
+        print(f'[REST] Sending request to {endpoint_url}...', flush=True)
+        start_time = time.time()
+        response = requests.post(
+            endpoint_url, json=payload, headers=headers, timeout=timeout
+        )
+        response_time = time.time() - start_time
+        print(
+            f'[REST] Response received in {response_time:.2f}s (status: {response.status_code})',
+            flush=True,
+        )
+
+        if response.status_code != 200:
+            error_msg = f'Google REST API returned status {response.status_code}'
+            try:
+                error_detail = response.json()
+                error_msg += f': {error_detail}'
+            except Exception:
+                error_msg += f': {response.text[:200]}'
+            print(f'ERROR: {error_msg}')
+            return ''
+
+        try:
+            result = response.json()
+        except Exception as json_err:
+            raw_body = response.text[:500] if response.text else '(empty)'
+            print(f'ERROR: Failed to parse JSON response: {json_err}')
+            print(f'[REST] Raw response body: {raw_body}')
+            return ''
+
+        transcription = ''
+        candidates = result.get('candidates', [])
+        if candidates:
+            parts = candidates[0].get('content', {}).get('parts', [])
+            for part in parts:
+                if 'audioTranscription' in part and 'text' in part['audioTranscription']:
+                    transcription += part['audioTranscription']['text']
+                elif 'text' in part:
+                    transcription += part['text']
+
+        if not transcription:
+            print(f'ERROR: Unexpected response format: {result}')
+            return ''
+
+        print(
+            f'[REST] Transcription received ({len(transcription)} chars)',
+            flush=True,
+        )
+        return transcription.strip()

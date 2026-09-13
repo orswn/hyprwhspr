@@ -148,6 +148,13 @@ PROVIDERS: Dict[str, Dict] = {
         'api_key_prefix': None,
         'api_key_description': 'Google AI API key (from aistudio.google.com)',
         'models': {
+            'gemini-3.5-transcribe': {
+                'name': 'Gemini 3.5 Transcribe',
+                'description': 'Precise batch speech-to-text, 85+ languages, smart formatting',
+                'backends': ('rest-api',),
+                'endpoint': 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe:generateContent',
+                'body': {'model': 'gemini-3.5-transcribe'},
+            },
             'gemini-3.5-transcribe-live': {
                 'name': 'Gemini 3.5 Transcribe Live',
                 'description': 'Precise real-time streaming speech-to-text, 85+ languages',
@@ -260,7 +267,7 @@ def get_model_config(provider_id: str, model_id: str) -> Optional[Dict]:
         return None
     
     return {
-        'endpoint': provider['endpoint'],
+        'endpoint': model_config.get('endpoint', provider['endpoint']),
         'body': model_config.get('body', {}).copy(),
         'model_name': model_config.get('name', model_id),
         'model_description': model_config.get('description', '')

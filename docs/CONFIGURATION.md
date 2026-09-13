@@ -627,6 +627,22 @@ Use any ASR backend via HTTP API (local or cloud).
 
 > **Note:** Cohere's API requires a `language` parameter. Set `"language": "en"` (or your language code) in your config alongside the backend selection.
 
+#### Google Gemini
+
+Batch speech-to-text with smart formatting via Google's `gemini-3.5-transcribe` model.
+Bring an API key from [Google AI Studio](https://aistudio.google.com/).
+
+```jsonc
+{
+    "transcription_backend": "rest-api",
+    "rest_api_provider": "google",
+    "rest_endpoint_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe:generateContent",
+    "rest_body": {
+        "model": "gemini-3.5-transcribe"
+    }
+}
+```
+
 #### OpenAI
 
 Bring an API key from OpenAI, and choose from:
