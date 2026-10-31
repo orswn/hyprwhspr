@@ -210,9 +210,8 @@ class RecordingMixin:
             # Write recording status to file for tray script
             self._write_recording_status(True)
 
-            # Update language in realtime client if override is provided
-            if language_override is not None:
-                self.whisper_manager.update_realtime_language(language_override)
+            # Apply this recording's language override, or restore the configured one
+            self.whisper_manager.update_realtime_language(language_override)
             
             # Check if using realtime-ws backend and get streaming callback
             streaming_callback = self.whisper_manager.get_realtime_streaming_callback()
@@ -362,7 +361,7 @@ class RecordingMixin:
                 # Stream is working and stable - start monitoring
                 self._start_audio_level_monitoring()
                     
-            except (RuntimeError, Exception) as e:
+            except Exception as e:
                 log(f"[ERROR] Failed to start recording: {e}")
 
                 # Clean up resources
@@ -642,10 +641,6 @@ class RecordingMixin:
             # Restore system audio if it was ducked or paused
             self._restore_recording_playback(session)
 
-            # Check backend type
-            backend = self.config.get_setting('transcription_backend', 'pywhispercpp')
-            backend = normalize_backend(backend)
-            
             # Stop audio capture
             self._wait_for_start_settled()
             audio_data = self.audio_capture.stop_recording()

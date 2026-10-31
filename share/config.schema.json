@@ -214,7 +214,13 @@
     "post_transcription_hook": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Shell command run after preprocessing, before paste. Stdin receives the transcription; non-empty stdout replaces it. Empty stdout preserves the original text. Exit status 77 intentionally consumes the transcription and skips paste. Env vars HYPRWHSPR_MODEL and HYPRWHSPR_BACKEND are set. Subject to a 5s timeout; other errors pass through the original text."
+      "description": "Shell command run after preprocessing, before paste. Stdin receives the transcription; non-empty stdout replaces it. Empty stdout preserves the original text. Exit status 77 intentionally consumes the transcription and skips paste. Env vars HYPRWHSPR_MODEL and HYPRWHSPR_BACKEND are set. Subject to post_transcription_hook_timeout; other errors pass through the original text."
+    },
+    "post_transcription_hook_timeout": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 5.0,
+      "description": "Timeout in seconds for post_transcription_hook. Must be positive. On timeout the original transcription is preserved. Increase for slower transforms such as local LLM cleanup."
     },
     "clipboard_behavior": {
       "type": "boolean",
@@ -473,6 +479,13 @@
       "enum": ["minimal", "low", "medium", "high", "xhigh"],
       "default": "low",
       "description": "Latency/accuracy delay setting for OpenAI continuous transcription models"
+    },
+    "realtime_transcription_languages": {
+      "type": ["array", "null"],
+      "items": {"type": "string", "pattern": "\\S"},
+      "minItems": 1,
+      "default": null,
+      "description": "Expected input languages for GPT Transcribe and GPT Live Transcribe; codes are trimmed, lowercased and deduplicated. Explicit language or secondary shortcut language takes precedence. null keeps auto-detection."
     },
     "realtime_conversation_history": {
       "type": "string",
